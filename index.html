@@ -2,9 +2,23 @@
 <html>
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-<title>Phillip Stallworthy</title>
+<title>Insert title here</title>
+<link rel="stylesheet" type="text/css" href="release/dojo/games/themes/green_baize/tetravex.css" />
+<script type="text/javascript" src="release/dojo/dojo/dojo.js"> 
+</script>
+
+<script type="text/javascript">
+  dojo.require("games.Tetravex");
+  dojo.addOnLoad(function() {
+    //var t = new games.Tetravex;
+    //t.initialize();
+    games.Tetravex.initialize();
+  });
+</script>
+
+
 </head>
 <body>
-<p>Test page</p>
+	<div id="tetravex"></div>
 </body>
 </html>
