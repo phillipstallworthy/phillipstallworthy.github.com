@@ -30,4 +30,5 @@ tetravex.js:
 ./../../../release/dojo/dojox/gfx/Mover.js
 ./../../../release/dojo/dojox/gfx/Moveable.js
 ./../../../release/dojo/dojox/gfx/move.js
+./../../../release/dojo/dojo/io/script.js
 ./../../../release/dojo/games/Tetravex.js

@@ -1101,17 +1101,273 @@ dojo.provide("dojox.gfx.move");
 
 }
 
+if(!dojo._hasResource["dojo.io.script"]){ //_hasResource checks added by build. Do not use _hasResource directly in your code.
+dojo._hasResource["dojo.io.script"] = true;
+dojo.provide("dojo.io.script");
+
+dojo.getObject("io", true, dojo);
+
+/*=====
+dojo.declare("dojo.io.script.__ioArgs", dojo.__IoArgs, {
+	constructor: function(){
+		//	summary:
+		//		All the properties described in the dojo.__ioArgs type, apply to this
+		//		type as well, EXCEPT "handleAs". It is not applicable to
+		//		dojo.io.script.get() calls, since it is implied by the usage of
+		//		"jsonp" (response will be a JSONP call returning JSON)
+		//		or the response is pure JavaScript defined in
+		//		the body of the script that was attached.
+		//	callbackParamName: String
+		//		Deprecated as of Dojo 1.4 in favor of "jsonp", but still supported for
+		// 		legacy code. See notes for jsonp property.
+		//	jsonp: String
+		//		The URL parameter name that indicates the JSONP callback string.
+		//		For instance, when using Yahoo JSONP calls it is normally,
+		//		jsonp: "callback". For AOL JSONP calls it is normally
+		//		jsonp: "c".
+		//	checkString: String
+		//		A string of JavaScript that when evaluated like so:
+		//		"typeof(" + checkString + ") != 'undefined'"
+		//		being true means that the script fetched has been loaded.
+		//		Do not use this if doing a JSONP type of call (use callbackParamName instead).
+		//	frameDoc: Document
+		//		The Document object for a child iframe. If this is passed in, the script
+		//		will be attached to that document. This can be helpful in some comet long-polling
+		//		scenarios with Firefox and Opera.
+		this.callbackParamName = callbackParamName;
+		this.jsonp = jsonp;
+		this.checkString = checkString;
+		this.frameDoc = frameDoc;
+	}
+});
+=====*/
+(function(){
+	var loadEvent = dojo.isIE ? "onreadystatechange" : "load",
+		readyRegExp = /complete|loaded/;
+
+	dojo.io.script = {
+		get: function(/*dojo.io.script.__ioArgs*/args){
+			//	summary:
+			//		sends a get request using a dynamically created script tag.
+			var dfd = this._makeScriptDeferred(args);
+			var ioArgs = dfd.ioArgs;
+			dojo._ioAddQueryToUrl(ioArgs);
+	
+			dojo._ioNotifyStart(dfd);
+
+			if(this._canAttach(ioArgs)){
+				var node = this.attach(ioArgs.id, ioArgs.url, args.frameDoc);
+
+				//If not a jsonp callback or a polling checkString case, bind
+				//to load event on the script tag.
+				if(!ioArgs.jsonp && !ioArgs.args.checkString){
+					var handle = dojo.connect(node, loadEvent, function(evt){
+						if(evt.type == "load" || readyRegExp.test(node.readyState)){
+							dojo.disconnect(handle);
+							ioArgs.scriptLoaded = evt;
+						}
+					});
+				}
+			}
+
+			dojo._ioWatch(dfd, this._validCheck, this._ioCheck, this._resHandle);
+			return dfd;
+		},
+	
+		attach: function(/*String*/id, /*String*/url, /*Document?*/frameDocument){
+			//	summary:
+			//		creates a new <script> tag pointing to the specified URL and
+			//		adds it to the document.
+			//	description:
+			//		Attaches the script element to the DOM.  Use this method if you
+			//		just want to attach a script to the DOM and do not care when or
+			//		if it loads.
+			var doc = (frameDocument || dojo.doc);
+			var element = doc.createElement("script");
+			element.type = "text/javascript";
+			element.src = url;
+			element.id = id;
+			element.charset = "utf-8";
+			return doc.getElementsByTagName("head")[0].appendChild(element);
+		},
+	
+		remove: function(/*String*/id, /*Document?*/frameDocument){
+			//summary: removes the script element with the given id, from the given frameDocument.
+			//If no frameDocument is passed, the current document is used.
+			dojo.destroy(dojo.byId(id, frameDocument));
+			
+			//Remove the jsonp callback on dojo.io.script, if it exists.
+			if(this["jsonp_" + id]){
+				delete this["jsonp_" + id];
+			}
+		},
+	
+		_makeScriptDeferred: function(/*Object*/args){
+			//summary:
+			//		sets up a Deferred object for an IO request.
+			var dfd = dojo._ioSetArgs(args, this._deferredCancel, this._deferredOk, this._deferredError);
+	
+			var ioArgs = dfd.ioArgs;
+			ioArgs.id = dojo._scopeName + "IoScript" + (this._counter++);
+			ioArgs.canDelete = false;
+	
+			//Special setup for jsonp case
+			ioArgs.jsonp = args.callbackParamName || args.jsonp;
+			if(ioArgs.jsonp){
+				//Add the jsonp parameter.
+				ioArgs.query = ioArgs.query || "";
+				if(ioArgs.query.length > 0){
+					ioArgs.query += "&";
+				}
+				ioArgs.query += ioArgs.jsonp
+					+ "="
+					+ (args.frameDoc ? "parent." : "")
+					+ dojo._scopeName + ".io.script.jsonp_" + ioArgs.id + "._jsonpCallback";
+	
+				ioArgs.frameDoc = args.frameDoc;
+	
+				//Setup the Deferred to have the jsonp callback.
+				ioArgs.canDelete = true;
+				dfd._jsonpCallback = this._jsonpCallback;
+				this["jsonp_" + ioArgs.id] = dfd;
+			}
+			return dfd; // dojo.Deferred
+		},
+		
+		_deferredCancel: function(/*Deferred*/dfd){
+			//summary: canceller function for dojo._ioSetArgs call.
+	
+			//DO NOT use "this" and expect it to be dojo.io.script.
+			dfd.canceled = true;
+			if(dfd.ioArgs.canDelete){
+				dojo.io.script._addDeadScript(dfd.ioArgs);
+			}
+		},
+	
+		_deferredOk: function(/*Deferred*/dfd){
+			//summary: okHandler function for dojo._ioSetArgs call.
+	
+			//DO NOT use "this" and expect it to be dojo.io.script.
+			var ioArgs = dfd.ioArgs;
+	
+			//Add script to list of things that can be removed.
+			if(ioArgs.canDelete){
+				dojo.io.script._addDeadScript(ioArgs);
+			}
+	
+			//Favor JSONP responses, script load events then lastly ioArgs.
+			//The ioArgs are goofy, but cannot return the dfd since that stops
+			//the callback chain in Deferred. The return value is not that important
+			//in that case, probably a checkString case.
+			return ioArgs.json || ioArgs.scriptLoaded || ioArgs;
+		},
+	
+		_deferredError: function(/*Error*/error, /*Deferred*/dfd){
+			//summary: errHandler function for dojo._ioSetArgs call.
+	
+			if(dfd.ioArgs.canDelete){
+				//DO NOT use "this" and expect it to be dojo.io.script.
+				if(error.dojoType == "timeout"){
+					//For timeouts, remove the script element immediately to
+					//avoid a response from it coming back later and causing trouble.
+					dojo.io.script.remove(dfd.ioArgs.id, dfd.ioArgs.frameDoc);
+				}else{
+					dojo.io.script._addDeadScript(dfd.ioArgs);
+				}
+			}
+			console.log("dojo.io.script error", error);
+			return error;
+		},
+	
+		_deadScripts: [],
+		_counter: 1,
+	
+		_addDeadScript: function(/*Object*/ioArgs){
+			//summary: sets up an entry in the deadScripts array.
+			dojo.io.script._deadScripts.push({id: ioArgs.id, frameDoc: ioArgs.frameDoc});
+			//Being extra paranoid about leaks:
+			ioArgs.frameDoc = null;
+		},
+	
+		_validCheck: function(/*Deferred*/dfd){
+			//summary: inflight check function to see if dfd is still valid.
+	
+			//Do script cleanup here. We wait for one inflight pass
+			//to make sure we don't get any weird things by trying to remove a script
+			//tag that is part of the call chain (IE 6 has been known to
+			//crash in that case).
+			var _self = dojo.io.script;
+			var deadScripts = _self._deadScripts;
+			if(deadScripts && deadScripts.length > 0){
+				for(var i = 0; i < deadScripts.length; i++){
+					//Remove the script tag
+					_self.remove(deadScripts[i].id, deadScripts[i].frameDoc);
+					deadScripts[i].frameDoc = null;
+				}
+				dojo.io.script._deadScripts = [];
+			}
+	
+			return true;
+		},
+	
+		_ioCheck: function(/*Deferred*/dfd){
+			//summary: inflight check function to see if IO finished.
+			var ioArgs = dfd.ioArgs;
+			//Check for finished jsonp
+			if(ioArgs.json || (ioArgs.scriptLoaded && !ioArgs.args.checkString)){
+				return true;
+			}
+	
+			//Check for finished "checkString" case.
+			var checkString = ioArgs.args.checkString;
+			if(checkString && eval("typeof(" + checkString + ") != 'undefined'")){
+				return true;
+			}
+	
+			return false;
+		},
+	
+		_resHandle: function(/*Deferred*/dfd){
+			//summary: inflight function to handle a completed response.
+			if(dojo.io.script._ioCheck(dfd)){
+				dfd.callback(dfd);
+			}else{
+				//This path should never happen since the only way we can get
+				//to _resHandle is if _ioCheck is true.
+				dfd.errback(new Error("inconceivable dojo.io.script._resHandle error"));
+			}
+		},
+	
+		_canAttach: function(/*Object*/ioArgs){
+			//summary: A method that can be overridden by other modules
+			//to control when the script attachment occurs.
+			return true;
+		},
+		
+		_jsonpCallback: function(/*JSON Object*/json){
+			//summary:
+			//		generic handler for jsonp callback. A pointer to this function
+			//		is used for all jsonp callbacks.  NOTE: the "this" in this
+			//		function will be the Deferred object that represents the script
+			//		request.
+			this.ioArgs.json = json;
+		}
+	};
+})();
+
+}
+
 dojo.provide(
     "games.Tetravex", null, {});
 
 
 
+ // for the JSONP function
 
 // set up a name space
 games.Tetravex = function() {
 };
 
-// better as just variables?
 games.Tetravex._props = {
   suface_width : 400,
   suface_height : 200,
@@ -1122,16 +1378,21 @@ games.Tetravex._boardX = [];
 games.Tetravex._boardY = [];
 games.Tetravex._half_square = 0; // half a square including padding
 games.Tetravex._tileSize = 0;
-games.Tetravex._boardSize = 3;
+games.Tetravex._boardSize = 2;
 games.Tetravex._surface = null;
 // TODO: A sparse array of square objects that store references to the tiles.??
 games.Tetravex.squares = [];
 // the array that stores the tiles.
 games.Tetravex._tile = [];
+games.Tetravex._tileData = []; // xhr retrieved
 games.Tetravex._origin = {
   x : 0,
   y : 0
 };
+// games.Tetravex._dataUrl = "http://wll092/Tetravex/return.php"; // local php test
+//games.Tetravex._dataUrl = "http://localhost:8124"; // local node.js
+games.Tetravex._dataUrl = "http://tiledata.duostack.net"; // remote node.js
+games.Tetravex._timeout = 1000; // the timeout for fetching game data
 
 // Set the padding and then reset the board grid arrays.
 games.Tetravex.setPadding = function(padding) {
@@ -1145,47 +1406,116 @@ games.Tetravex.setTileSize = function(size) {
 };
 
 // Initialise the game.
-games.Tetravex.initialize = function() {
+games.Tetravex.initialize = function(createBoard) {
+  // first asynchronously get the data, then do some setup while waiting for the return.
+  var deferred = games.Tetravex._xhrGameData();
   var container = dojo.byId("tetravex");
-  games.Tetravex._surface = dojox.gfx.createSurface(
-      container, games.Tetravex._props.suface_width, games.Tetravex._props.suface_height);
+
+  if (createBoard) {
+    games.Tetravex._surface = dojox.gfx.createSurface(
+        container, games.Tetravex._props.suface_width, games.Tetravex._props.suface_height);
+  } else {
+    games.Tetravex._surface.clear();
+  }
   games.Tetravex._surface.whenLoaded(function() {
     games.Tetravex._drawBoard();
     games.Tetravex._extendOnMoving();
-    games.Tetravex._createTiles();
+
+    // If the call back has finished or erred then create the tiles ( on error local data is produced)
+    // We will only actually get the 1, error condition if the XHR fails before it gets here
+    // which would require a very small local time out, 1ms on my dev machine was still too long.
+    // else
+    // If we are still waiting for a return then add deferred call backs to the chain that will fire when it does.
+    // Calls to createTiles cannot be put into the original call back functions as there is a chance
+    // they will fire before the surface is loaded, which would be bad.
+    console.debug("XHR fired " + deferred.fired);
+    if (deferred.fired == 0 || deferred.fired == 1) {
+      console.debug("XHR was finished");
+      games.Tetravex._createTiles();
+    } else {
+      deferred.addCallback(function(response) {
+        console.debug("XHR not finished, this additional callback fires when it does.");
+        games.Tetravex._createTiles();
+        return response;
+      });
+      deferred.addErrback(function(response) {
+        console.debug("XHR not finished, this additional errback fires when it does.");
+        games.Tetravex._createTiles();
+        return response;
+      });
+    }
+    // If the local time out is long then maybe a call back has not even been fired yet.
+    // Very cool IMHO, because they will get called, and still work.
+    console.debug("Returning from initialize function. ");
   });
   return;
 };
 
+// reset the board with new tiles
 games.Tetravex.reset = function() {
-  for ( var f = 0; f < games.Tetravex._tile.length; f++) {
-    games.Tetravex._tile[f].removeShape();
-  }
-  games.Tetravex._createTiles();
+  games.Tetravex._tile = [];
+  games.Tetravex.initialize(false);
 };
 
+// reset the board and re-initialise to a size one greater than current
 games.Tetravex.resetPlus = function() {
   if (games.Tetravex._boardSize < 5) {
     games.Tetravex._boardSize++;
-    games.Tetravex._surface.clear();
-    games.Tetravex._drawBoard();
-    games.Tetravex._createTiles();
+    games.Tetravex._tile = [];
+    games.Tetravex.initialize(false);
   }
 };
 
+// reset the board and re-initialise to a size one less than current
 games.Tetravex.resetMinus = function() {
   if (games.Tetravex._boardSize > 2) {
     games.Tetravex._boardSize--;
-    games.Tetravex._surface.clear();
-    games.Tetravex._drawBoard();
-    games.Tetravex._createTiles();
+    games.Tetravex._tile = [];
+    games.Tetravex.initialize(false);
   }
 };
 
-games.Tetravex._drawBoard = function() {
-  // summary: Use the global this._boardX and this._boardY arrays to draw the board grid
+// this is the JSONP version
+games.Tetravex._xhrGameData = function() {
+  return dojo.io.script.get({
+    callbackParamName : "tileDataCallback", // read by the jsonp service
+    url : games.Tetravex._dataUrl,
+    handleAs : "json", // Strip the comments and eval to a JavaScript object
+    timeout : games.Tetravex._timeout, // Call the error handler if nothing after .5 seconds
+    preventCache : true,
+    content : {
+      format : "json",
+      size : games.Tetravex._boardSize
+    }, // content is the query string
+    // Run this function if the request is successful
+    load : function(response, ioArgs) {
+      console.debug(
+          "successful xhrGet", response, ioArgs);
+      games.Tetravex._tileData = response.n;
+      return response; // always return the response back
+    },
+    // Run this function if the request is not successful
+    error : function(response, ioArgs) {
+      console.debug("failed xhrGet");
+      games.Tetravex._tileData = games.Tetravex._localTileNumbers.n;
+      return response; // always return the response back
+    }
+  });
+};
 
-  games.Tetravex._initGameSize();
+
+// if the XHR times out or errors then generate the numbers locally
+// If created locally then the cs check sum will be incorrect and the score
+// will not be eligible for the global high score table, should really be a UI option
+games.Tetravex._localTileNumbers = {
+  "n" : [ [ 1, 1, 1, 1 ], [ 2, 2, 2, 2 ], [ 3, 3, 3, 3 ], [ 4, 4, 4, 4 ] ],
+  "cs" : null
+};
+
+games.Tetravex._drawBoard = function() {
+  // summary: Initialise board size variables and draw the board on the surface
+
+  games.Tetravex._initGlobals();
 
   var path = games.Tetravex._surface.createPath().setStroke(
       "black");
@@ -1221,19 +1551,15 @@ games.Tetravex._drawBoard = function() {
         games.Tetravex._boardX[i], games.Tetravex._boardY[0]).vLineTo(
         games.Tetravex._boardY[games.Tetravex._boardSize]).closePath();
   }
-
 };
 
-// initialise the x and y board arrays
-games.Tetravex._initGameSize = function() {
-
+games.Tetravex._initGlobals = function() {
+  // initialize the game global variables that are based on board size
+  // used by draw board, and the unit tests
   games.Tetravex._tileSize = games.Tetravex._props.suface_width / ((2 * games.Tetravex._boardSize) + 2);
-
   games.Tetravex._half_square = (games.Tetravex._tileSize / 2) + (games.Tetravex._props.padding);
-
   games.Tetravex._boardX = [];
   games.Tetravex._boardY = [];
-
   games.Tetravex._boardX[0] = games.Tetravex._tileSize / 2;
   // console.debug("board x " + games.Tetravex._boardX[0]);
   for ( var f = 1; f < (2 * games.Tetravex._boardSize) + 2; f++) {
@@ -1241,11 +1567,9 @@ games.Tetravex._initGameSize = function() {
         + ((games.Tetravex._tileSize + games.Tetravex._props.padding * 2) * (f));
     // console.debug("board x " + games.Tetravex._boardX[f]);
   }
-
   for ( var y = 0; y <= games.Tetravex._boardSize; y++) {
     games.Tetravex._boardY[y] = games.Tetravex._boardX[y];
   }
-
 };
 
 games.Tetravex._extendOnMoving = function() {
@@ -1281,9 +1605,20 @@ games.Tetravex._createTiles = function() {
   var t = 0;
   for ( var y = 0; y < games.Tetravex._boardSize; y++) {
     for ( var x = 1; x <= games.Tetravex._boardSize; x++) {
+
+      // random tiles, not playable
+      // games.Tetravex._tile[t] = createTile(Math.ceil(Math.random() * 9), Math.ceil(Math.random() * 9),
+      // Math.ceil(Math.random() * 9), Math.ceil(Math.random() * 9));
+
+      //console.debug("tile data " + games.Tetravex._tileData);
+      //console.debug("tile data " + games.Tetravex._tileData[t][0] + " " + games.Tetravex._tileData[t][1] + " "
+      //    + games.Tetravex._tileData[t][2] + " " + games.Tetravex._tileData[t][3]);
+      
+      // use the tile data to populate the tiles
       games.Tetravex._tile[t] = createTile(
-          Math.ceil(Math.random() * 9), Math.ceil(Math.random() * 9), Math.ceil(Math.random() * 9), Math.ceil(Math
-              .random() * 9));
+          games.Tetravex._tileData[t][0], games.Tetravex._tileData[t][1], games.Tetravex._tileData[t][2],
+          games.Tetravex._tileData[t][3]);
+
       games.Tetravex._tile[t].applyLeftTransform({
         dx : games.Tetravex._boardX[games.Tetravex._boardSize + x] + (games.Tetravex._props.padding),
         dy : games.Tetravex._boardY[y] + (games.Tetravex._props.padding)
