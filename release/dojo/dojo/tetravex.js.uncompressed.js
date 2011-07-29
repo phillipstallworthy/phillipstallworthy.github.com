@@ -1357,12 +1357,37 @@ dojo.declare("dojo.io.script.__ioArgs", dojo.__IoArgs, {
 
 }
 
+if(!dojo._hasResource["games.tileData"]){ //_hasResource checks added by build. Do not use _hasResource directly in your code.
+dojo._hasResource["games.tileData"] = true;
+dojo.provide("games.tileData");
+// DOJO //
+games.tileData =
+  
+//Same object in the node module
+  
+// --------8<--------//
+{
+  top : 0,
+  left : 1,
+  bottom : 2,
+  right : 3,
+  moduleSize : undefined,
+  logSize : function(size) {
+    this.moduleSize = size;
+    console.log(this.moduleSize);
+  }
+};
+// --------8<--------//
+
+}
+
 dojo.provide(
     "games.Tetravex", null, {});
 
 
 
  // for the JSONP function
+
 
 // set up a name space
 games.Tetravex = function() {
@@ -1389,10 +1414,7 @@ games.Tetravex._origin = {
   x : 0,
   y : 0
 };
-// games.Tetravex._dataUrl = "http://wll092/Tetravex/return.php"; // local php test
-//games.Tetravex._dataUrl = "http://localhost:8124"; // local node.js
-games.Tetravex._dataUrl = "http://tiledata.duostack.net"; // remote node.js
-games.Tetravex._timeout = 1000; // the timeout for fetching game data
+games.Tetravex._timeout = 500; // the timeout for fetching game data from the server
 
 // Set the padding and then reset the board grid arrays.
 games.Tetravex.setPadding = function(padding) {
@@ -1409,6 +1431,12 @@ games.Tetravex.setTileSize = function(size) {
 games.Tetravex.initialize = function(createBoard) {
   // first asynchronously get the data, then do some setup while waiting for the return.
   var deferred = games.Tetravex._xhrGameData();
+
+  // temp module testing
+  // console.debug("games.tileData.top " + games.tileData.top);
+  // console.debug("games.tileData.bottom " + games.tileData.bottom);
+  // console.debug("games.tileData.logSize(size) " + games.tileData.logSize(games.Tetravex._boardSize));
+
   var container = dojo.byId("tetravex");
 
   if (createBoard) {
@@ -1428,25 +1456,25 @@ games.Tetravex.initialize = function(createBoard) {
     // If we are still waiting for a return then add deferred call backs to the chain that will fire when it does.
     // Calls to createTiles cannot be put into the original call back functions as there is a chance
     // they will fire before the surface is loaded, which would be bad.
-    console.debug("XHR fired " + deferred.fired);
+    //console.debug("XHR fired " + deferred.fired);
     if (deferred.fired == 0 || deferred.fired == 1) {
-      console.debug("XHR was finished");
+      //console.debug("XHR was finished");
       games.Tetravex._createTiles();
     } else {
       deferred.addCallback(function(response) {
-        console.debug("XHR not finished, this additional callback fires when it does.");
+        //console.debug("XHR not finished, this additional callback fires when it does.");
         games.Tetravex._createTiles();
         return response;
       });
       deferred.addErrback(function(response) {
-        console.debug("XHR not finished, this additional errback fires when it does.");
+        //console.debug("XHR not finished, this additional errback fires when it does.");
         games.Tetravex._createTiles();
         return response;
       });
     }
     // If the local time out is long then maybe a call back has not even been fired yet.
     // Very cool IMHO, because they will get called, and still work.
-    console.debug("Returning from initialize function. ");
+    //console.debug("Returning from initialize function. ");
   });
   return;
 };
@@ -1478,19 +1506,20 @@ games.Tetravex.resetMinus = function() {
 // this is the JSONP version
 games.Tetravex._xhrGameData = function() {
   return dojo.io.script.get({
-    callbackParamName : "tileDataCallback", // read by the jsonp service
-    url : games.Tetravex._dataUrl,
-    handleAs : "json", // Strip the comments and eval to a JavaScript object
-    timeout : games.Tetravex._timeout, // Call the error handler if nothing after .5 seconds
+    callbackParamName : "tileDataCallback", // Read by the jsonp service to set the name of the function returned, set
+                                            // by Dojo. IE Dojo sets the name of the call back and the client and the server
+                                            // use this parameter to pass the value.
+    url : games.Tetravex.dataUrl,
+    handleAs : "json",                      // Strip the comments and eval to a JavaScript object
+    timeout : games.Tetravex._timeout,      // Call the error handler if nothing after .5 seconds
     preventCache : true,
     content : {
       format : "json",
       size : games.Tetravex._boardSize
-    }, // content is the query string
-    // Run this function if the request is successful
+    },  // content is the query string
+       // Run this function if the request is successful
     load : function(response, ioArgs) {
-      console.debug(
-          "successful xhrGet", response, ioArgs);
+      //console.debug("successful xhrGet", response, ioArgs);
       games.Tetravex._tileData = response.n;
       return response; // always return the response back
     },
@@ -1502,7 +1531,6 @@ games.Tetravex._xhrGameData = function() {
     }
   });
 };
-
 
 // if the XHR times out or errors then generate the numbers locally
 // If created locally then the cs check sum will be incorrect and the score
@@ -1610,10 +1638,10 @@ games.Tetravex._createTiles = function() {
       // games.Tetravex._tile[t] = createTile(Math.ceil(Math.random() * 9), Math.ceil(Math.random() * 9),
       // Math.ceil(Math.random() * 9), Math.ceil(Math.random() * 9));
 
-      //console.debug("tile data " + games.Tetravex._tileData);
-      //console.debug("tile data " + games.Tetravex._tileData[t][0] + " " + games.Tetravex._tileData[t][1] + " "
-      //    + games.Tetravex._tileData[t][2] + " " + games.Tetravex._tileData[t][3]);
-      
+      // console.debug("tile data " + games.Tetravex._tileData);
+      // console.debug("tile data " + games.Tetravex._tileData[t][0] + " " + games.Tetravex._tileData[t][1] + " "
+      // + games.Tetravex._tileData[t][2] + " " + games.Tetravex._tileData[t][3]);
+
       // use the tile data to populate the tiles
       games.Tetravex._tile[t] = createTile(
           games.Tetravex._tileData[t][0], games.Tetravex._tileData[t][1], games.Tetravex._tileData[t][2],
@@ -1647,6 +1675,8 @@ games.Tetravex._createTiles = function() {
         moveMe[t], "onMouseDown", null, (function(moveMe) {
           // a call back closure that remembers each moveMe that it's given, sweet!
           return function(evt) {
+            debugger;
+            console.debug("evt " + evt);
             games.Tetravex._origin.x = moveMe.shape.matrix.dx;
             games.Tetravex._origin.y = moveMe.shape.matrix.dy;
           };
